@@ -11,16 +11,30 @@ from observable import Observable
 from fitter import Fitter
 from plotter import Plotter
 import loader
+import mapping
+
+
+# =========================================================================
+# Prediction key constants
+# =========================================================================
+# Fiducial predictions use LaTeX labels; differential use plain text.
+KEY_FID_TT   = r"$t\bar{t}$ (5FS)"
+KEY_FID_TTBB = r"$t\bar{t}b\bar{b}$ (4FS)"
+KEY_DIFF_TT   = "tt (5FS)"
+KEY_DIFF_TTBB = "ttbb (4FS)"
 
 
 def main():
     # =========================================================================
     # 1. Load fiducial results
     # =========================================================================
+    REGION = "3j3b"
+    fid_key = mapping.get_fiducial_key(REGION)
+
     print("=" * 70)
     print("FIDUCIAL CROSS SECTIONS")
     print("=" * 70)
-    fid = loader.load_fiducial(region="$\\geq3b$")
+    fid = loader.load_fiducial(region=fid_key)
     print(f"  Measured σ_fid = {fid['value']:.1f} ± {fid['stat']:.3f} (stat) fb")
     print(f"  Number of systematic sources: {len(fid['syst'])}")
     print("  MC predictions:")
@@ -28,16 +42,14 @@ def main():
         print(f"    {k:50s} : {v:.1f} fb")
 
     # =========================================================================
-    # 2. Load observable
+    # 2. Load observable via mapping
     # =========================================================================
     print("\n" + "=" * 70)
     print("LOADING OBSERVABLE: H_T^had (≥3b)")
     print("=" * 70)
-    obs_ht = Observable.from_hepdata(
-        name="H__T___had__in__3b",
-        label=r"$H_{\mathrm{T}}^{\mathrm{had}}$",
-        units="GeV",
-    )
+    obs_ht = mapping.load_observable("HT_had", REGION)
+    ht_root = mapping.get("HT_had", REGION).hepdata_root
+
     print(obs_ht)
     print(f"  Bins: {obs_ht.bins}")
     print(f"  Data: {obs_ht.data}")
@@ -54,31 +66,25 @@ def main():
     # =========================================================================
     # 3. Define a PLACEHOLDER signal
     # =========================================================================
-    # TODO: Replace with actual MadGraph topobb signal.
-    # For demonstration, we create a dummy signal that is harder (shifted
-    # to higher H_T^had) than the baseline.
+    # TODO: Replace with actual MadGraph signal via SignalLoader.
     print("\n" + "=" * 70)
     print("PLACEHOLDER SIGNAL (replace with MadGraph topobb)")
     print("=" * 70)
 
-    # Dummy signal fiducial cross section (fb)
-    sigma_signal = 5.0  # placeholder
+    sigma_signal = 5.0  # placeholder (fb)
     print(f"  Signal σ_fid = {sigma_signal:.1f} fb")
 
-    # Dummy signal normalised differential shape (same ×1000 convention)
-    # Slightly harder spectrum than Powheg tt
     signal_shape_ht = np.array([1.2, 2.8, 2.5, 1.8, 1.1, 0.12])
-    # Ensure it integrates to 1 (approximately — the normalisation should be
-    # exact if the binning × values sums correctly)
     bin_widths = obs_ht.bin_widths
-    # In ×1000 convention: Σ (f_i × Δx_i) / 1000 = 1
     integral = np.sum(signal_shape_ht * bin_widths) / obs_ht.scale_factor
     print(f"  Signal shape integral check: {integral:.4f} (should be ~1.0)")
-    # Renormalise
     signal_shape_ht = signal_shape_ht / integral
     integral2 = np.sum(signal_shape_ht * bin_widths) / obs_ht.scale_factor
     print(f"  After renorm: {integral2:.4f}")
     print(f"  Signal shape: {signal_shape_ht}")
+
+    # Signal shapes dict keyed by hepdata_root (as expected by Fitter)
+    signal_shapes = {ht_root: signal_shape_ht}
 
     # =========================================================================
     # 4. Fit μ
@@ -87,19 +93,12 @@ def main():
     print("FITTING: Powheg tt (5FS) + μ × signal")
     print("=" * 70)
 
-    # --- Fit with Powheg tt (5FS) baseline ---
-    # Keys differ between fiducial (LaTeX) and differential (plain text)
-    KEY_FID_TT = r"$t\bar{t}$ (5FS)"     # substring of fiducial prediction label
-    KEY_FID_TTBB = r"$t\bar{t}b\bar{b}$ (4FS)"
-    KEY_DIFF_TT = "tt (5FS)"               # substring of differential prediction label
-    KEY_DIFF_TTBB = "ttbb (4FS)"
-
     fitter_tt = Fitter(
         baseline_key_fid=KEY_FID_TT,
         baseline_key_diff=KEY_DIFF_TT,
-        fiducial_region="$\\geq3b$",
+        fiducial_region=fid_key,
         signal_sigma=sigma_signal,
-        signal_shapes={"H__T___had__in__3b": signal_shape_ht},
+        signal_shapes=signal_shapes,
     )
 
     # Fiducial only
@@ -124,7 +123,7 @@ def main():
     print(res_shape_only)
     res_shape_only.save("FitResults/fit_tt5FS_HTHad_shape_only.txt")
 
-    # --- Goodness of fit at μ=0 (baseline only) ---
+    # Goodness of fit at μ=0 (baseline only)
     gof_mu0 = fitter_tt.goodness_of_fit(
         observables=[obs_ht], mu=0.0, include_fiducial=True,
         label="Powheg tt (5FS), μ=0",
@@ -141,9 +140,9 @@ def main():
     fitter_ttbb = Fitter(
         baseline_key_fid=KEY_FID_TTBB,
         baseline_key_diff=KEY_DIFF_TTBB,
-        fiducial_region="$\\geq3b$",
+        fiducial_region=fid_key,
         signal_sigma=sigma_signal,
-        signal_shapes={"H__T___had__in__3b": signal_shape_ht},
+        signal_shapes=signal_shapes,
     )
 
     res_ttbb = fitter_ttbb.fit(
@@ -162,7 +161,6 @@ def main():
 
     plotter = Plotter(output_dir="plots", experiment_label="TopoBB")
 
-    # Get fiducial σ values for the two baselines
     sigma_tt = fid["predictions"][
         [k for k in fid["predictions"] if KEY_FID_TT in k and "Powheg" in k][0]
     ]
@@ -172,7 +170,6 @@ def main():
     print(f"  σ_tt (5FS)   = {sigma_tt:.1f} fb")
     print(f"  σ_ttbb (4FS) = {sigma_ttbb:.1f} fb")
 
-    # Plot with μ = 1
     plotter.plot_observable(
         obs=obs_ht,
         signal_shape=signal_shape_ht,
@@ -184,7 +181,6 @@ def main():
         filename="HTHad_3b_mu1",
     )
 
-    # Plot with μ = best fit (tt baseline)
     plotter.plot_observable(
         obs=obs_ht,
         signal_shape=signal_shape_ht,
@@ -215,7 +211,6 @@ def main():
     print("=" * 70)
     from scan import MuScanner, compare_baselines
 
-    # Scan for tt (5FS) baseline, fiducial + H_T^had
     scanner_tt = MuScanner(
         fitter_tt, observables=[obs_ht],
         use_bootstraps=False, include_fiducial=True,
@@ -227,7 +222,6 @@ def main():
         filename="mu_scan_tt5FS",
     )
 
-    # Compare tt vs ttbb baselines
     compare_baselines(
         baselines={
             r"Pwg $t\bar{t}$ (5FS)": (KEY_FID_TT, KEY_DIFF_TT),
@@ -235,8 +229,8 @@ def main():
         },
         observables=[obs_ht],
         signal_sigma=sigma_signal,
-        signal_shapes={"H__T___had__in__3b": signal_shape_ht},
-        fiducial_region="$\\geq3b$",
+        signal_shapes=signal_shapes,
+        fiducial_region=fid_key,
         mu_range=(-2.0, 10.0),
         output_dir="plots",
         filename="mu_scan_comparison",
