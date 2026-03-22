@@ -257,13 +257,11 @@ def validate_combined_covariance(
 
 if __name__ == "__main__":
     # Run all validations on the available data
+    import mapping
+
     validate_fiducial()
 
-    obs_ht = Observable.from_hepdata(
-        "H__T___had__in__3b",
-        r"$H_{\mathrm{T}}^{\mathrm{had}}$",
-        "GeV",
-    )
+    obs_ht = mapping.load_observable("HT_had", "3j3b")
     validate_observable(obs_ht)
 
     # Single-observable combined covariance check

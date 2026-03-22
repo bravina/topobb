@@ -18,7 +18,7 @@ class Observable:
     """
 
     # Identification
-    name: str  # File identifier, e.g. "H__T___had__in__3b"
+    name: str  # HEPdata file root, e.g. "HT_had_3j3b"
     label: str  # LaTeX label for plotting, e.g. r"$H_{\mathrm{T}}^{\mathrm{had}}$"
     units: str = "GeV"
 
